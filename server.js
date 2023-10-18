@@ -68,8 +68,8 @@ app.post('/create-checkout-session', async (req, res) => {
                 quantity: 1,
             }],
             mode: 'payment',
-            success_url: 'http://localhost:3001/success',
-            cancel_url: 'http://localhost:3001/cancel',
+            success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
+            cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
         });
 
         res.json({ sessionId: session.id });
