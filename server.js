@@ -48,6 +48,49 @@ const client = Binance({
 //     res.status(200).send('Received');
 // });
 
+// app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
+//     const sig = req.headers['stripe-signature'];
+//     let event;
+
+//     try {
+//         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+//     } catch (err) {
+//         console.error("Error constructing webhook event:", err.message);
+//         return res.status(400).send(`Webhook Error: ${err.message}`);
+//     }
+
+//     if (event.type === 'checkout.session.completed') {
+//         const session = event.data.object;
+//         console.log("Completed purchase. Full session data:", JSON.stringify(session));
+
+//         console.log("completed purchase");
+
+//         // Safely access the description
+//         const description = session?.display_items?.[0]?.description;
+        
+//         if (description) {
+//             const [cryptoAmount, cryptoType] = description.split(" ");
+
+//             if (cryptoAmount && cryptoType) {
+//                 console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
+                
+//                 const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
+                
+//                 // Buy and transfer crypto
+//                 buyAndTransferCrypto(cryptoAmount, symbol);
+
+//                 return res.status(200).send('Received');
+//             }
+//         }
+        
+//         console.error("Unexpected session format. Could not extract crypto data.");
+//         return res.status(400).send("Unexpected session format. Could not extract crypto data.");
+//     }
+
+//     console.error("Unhandled event type:", event.type);
+//     return res.status(400).send(`Unhandled event type: ${event.type}`);
+// });
+
 app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -65,32 +108,29 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
 
         console.log("completed purchase");
 
-        // Safely access the description
-        const description = session?.display_items?.[0]?.description;
+        // Extract crypto data from session metadata
+        const cryptoAmount = session?.metadata?.cryptoAmount;
+        const cryptoType = session?.metadata?.cryptoType;
+        const walletAddress = session?.metadata?.walletAddress;
         
-        if (description) {
-            const [cryptoAmount, cryptoType] = description.split(" ");
+        if (cryptoAmount && cryptoType && walletAddress) {
+            console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
+            
+            const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
+            
+            // Buy and transfer crypto. I'm assuming you might want to include the walletAddress in the buying/transferring function.
+            buyAndTransferCrypto(cryptoAmount, symbol, walletAddress);
 
-            if (cryptoAmount && cryptoType) {
-                console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
-                
-                const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
-                
-                // Buy and transfer crypto
-                buyAndTransferCrypto(cryptoAmount, symbol);
-
-                return res.status(200).send('Received');
-            }
+            return res.status(200).send('Received');
+        } else {
+            console.error("Unexpected session format. Could not extract crypto data.");
+            return res.status(400).send("Unexpected session format. Could not extract crypto data.");
         }
-        
-        console.error("Unexpected session format. Could not extract crypto data.");
-        return res.status(400).send("Unexpected session format. Could not extract crypto data.");
     }
 
     console.error("Unhandled event type:", event.type);
     return res.status(400).send(`Unhandled event type: ${event.type}`);
 });
-
 
 async function buyAndTransferCrypto(cryptoAmount, symbol) {
     try {
@@ -136,18 +176,14 @@ app.get('/', (req, res) => {
 });
 
 app.post('/create-checkout-session', async (req, res) => {
-    // const { cryptoType, cryptoAmount, walletAddress } = req.body;
-    const { amount, walletAddress } = req.body; // Corrected data destructuring
+    const { amount, walletAddress } = req.body;
+    
     if (!amount || isNaN(amount)) {
         return res.status(400).send('Invalid amount provided');
     }
-    // For demonstration purposes, let's assume a fixed price. In a real-world scenario, you'd fetch current crypto prices.
-    // const price = cryptoType === 'ETH' ? 2000 : 1; // Replace with dynamic pricing logic
-    // const totalAmount = cryptoAmount * price;
-    // const unitAmt = totalAmount * 100
 
-    // For demonstration purposes, let's assume a fixed price and crypto type
-    const price = 2000; // Replace with dynamic pricing logic
+    // Assuming a fixed price for demonstration. Replace with dynamic pricing logic if needed.
+    const price = 2000;
     const totalAmount = amount * price;
     const unitAmt = totalAmount * 100;
 
@@ -158,30 +194,79 @@ app.post('/create-checkout-session', async (req, res) => {
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        // name: `${cryptoAmount} ${cryptoType}`,
-                        // description: `Buying ${cryptoAmount} ${cryptoType} for wallet: ${walletAddress}`,
-                        name: `${amount} ETH`, // Here I assume you're only dealing with ETH as a placeholder
+                        name: `${amount} ETH`,
                         description: `Buying ${amount} ETH for wallet: ${walletAddress}`,
-
                     },
-                    // unit_amount: totalAmount * 100, // Stripe uses cents, hence multiplying by 100
                     unit_amount: parseInt(unitAmt, 10)
-
                 },
                 quantity: 1,
             }],
             mode: 'payment',
             success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
             cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
+            metadata: { // Adding metadata to store the custom data
+                cryptoAmount: `${amount}`,
+                cryptoType: 'ETH',  // Using 'ETH' as a placeholder
+                walletAddress: `${walletAddress}`
+            }
         });
 
         res.json({ sessionId: session.id });
-        console.log(session.id)
+        console.log(session.id);
     } catch (error) {
         console.error('Error creating checkout session:', error);
         res.status(500).send('Internal Server Error');
     }
 });
+
+
+// app.post('/create-checkout-session', async (req, res) => {
+//     // const { cryptoType, cryptoAmount, walletAddress } = req.body;
+//     const { amount, walletAddress } = req.body; // Corrected data destructuring
+//     if (!amount || isNaN(amount)) {
+//         return res.status(400).send('Invalid amount provided');
+//     }
+//     // For demonstration purposes, let's assume a fixed price. In a real-world scenario, you'd fetch current crypto prices.
+//     // const price = cryptoType === 'ETH' ? 2000 : 1; // Replace with dynamic pricing logic
+//     // const totalAmount = cryptoAmount * price;
+//     // const unitAmt = totalAmount * 100
+
+//     // For demonstration purposes, let's assume a fixed price and crypto type
+//     const price = 2000; // Replace with dynamic pricing logic
+//     const totalAmount = amount * price;
+//     const unitAmt = totalAmount * 100;
+
+//     try {
+//         const session = await stripe.checkout.sessions.create({
+//             payment_method_types: ['card'],
+//             line_items: [{
+//                 price_data: {
+//                     currency: 'usd',
+//                     product_data: {
+//                         // name: `${cryptoAmount} ${cryptoType}`,
+//                         // description: `Buying ${cryptoAmount} ${cryptoType} for wallet: ${walletAddress}`,
+//                         name: `${amount} ETH`, // Here I assume you're only dealing with ETH as a placeholder
+//                         description: `Buying ${amount} ETH for wallet: ${walletAddress}`,
+
+//                     },
+//                     // unit_amount: totalAmount * 100, // Stripe uses cents, hence multiplying by 100
+//                     unit_amount: parseInt(unitAmt, 10)
+
+//                 },
+//                 quantity: 1,
+//             }],
+//             mode: 'payment',
+//             success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
+//             cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
+//         });
+
+//         res.json({ sessionId: session.id });
+//         console.log(session.id)
+//     } catch (error) {
+//         console.error('Error creating checkout session:', error);
+//         res.status(500).send('Internal Server Error');
+//     }
+// });
 
 
 // app.post('/mpesa-stk-push', (req, res) => {
