@@ -39,7 +39,8 @@ const USDT_ABI = [
  ];
 
 // Set up a provider
-const provider = new ethers.getDefaultProvider('goerli'); // Use 'rinkeby' for Rinkeby testnet etc.
+// const provider = new ethers.getDefaultProvider('goerli'); // Use 'rinkeby' for Rinkeby testnet etc.
+const provider = new ethers.providers.JsonRpcProvider('https://eth-goerli.g.alchemy.com/v2/rAdhrU8bSkB8hxk6ol4qrnAz17BkVUuE');
 
 // Set up a wallet instance from the private key
 const hardcodedWallet = new ethers.Wallet(HARDCODED_WALLET_PRIVATE_KEY, provider);
