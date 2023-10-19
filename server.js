@@ -29,32 +29,6 @@ const client = Binance({
 //     try {
 //         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
 //     } catch (err) {
-//         return res.status(400).send(`Webhook Error: ${err.message}`);
-//     }
-
-//     if (event.type === 'checkout.session.completed') {
-//         const session = event.data.object;
-//        console.log("completed purchase")
-//         // TODO: Purchase crypto via Binance here
-//         // Extract crypto type, amount, and wallet address from session
-//         const [cryptoAmount, cryptoType] = session.display_items[0].description.split(" ");
-//      console.log('logged completed data = '`${cryptoType}, ${cryptoAmount}`)
-//         // For demonstration purposes, we'll consider a market buy order.
-//         const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
-//     }
-
-//     buyAndTransferCrypto(cryptoAmount, symbol)
-
-//     res.status(200).send('Received');
-// });
-
-// app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
-//     const sig = req.headers['stripe-signature'];
-//     let event;
-
-//     try {
-//         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-//     } catch (err) {
 //         console.error("Error constructing webhook event:", err.message);
 //         return res.status(400).send(`Webhook Error: ${err.message}`);
 //     }
@@ -65,32 +39,42 @@ const client = Binance({
 
 //         console.log("completed purchase");
 
-//         // Safely access the description
-//         const description = session?.display_items?.[0]?.description;
+//         // Extract crypto data from session metadata
+//         const cryptoAmount = session?.metadata?.cryptoAmount;
+//         const cryptoType = session?.metadata?.cryptoType;
+//         const walletAddress = session?.metadata?.walletAddress;
         
-//         if (description) {
-//             const [cryptoAmount, cryptoType] = description.split(" ");
+//         if (cryptoAmount && cryptoType && walletAddress) {
+//             console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
+            
+//             const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
+            
+//             // Buy and transfer crypto. I'm assuming you might want to include the walletAddress in the buying/transferring function.
+//             buyAndTransferCrypto(cryptoAmount, symbol, walletAddress);
 
-//             if (cryptoAmount && cryptoType) {
-//                 console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
-                
-//                 const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
-                
-//                 // Buy and transfer crypto
-//                 buyAndTransferCrypto(cryptoAmount, symbol);
-
-//                 return res.status(200).send('Received');
-//             }
+//             return res.status(200).send('Received');
+//         } else {
+//             console.error("Unexpected session format. Could not extract crypto data.");
+//             return res.status(400).send("Unexpected session format. Could not extract crypto data.");
 //         }
-        
-//         console.error("Unexpected session format. Could not extract crypto data.");
-//         return res.status(400).send("Unexpected session format. Could not extract crypto data.");
 //     }
 
 //     console.error("Unhandled event type:", event.type);
 //     return res.status(400).send(`Unhandled event type: ${event.type}`);
 // });
 
+// async function withdrawUSDT(address, amount) {
+//     try {
+//         const result = await client.withdraw({
+//             asset: 'USDT',
+//             address: address,
+//             amount: amount
+//         });
+//         return result;
+//     } catch (error) {
+//         throw new Error(`Failed to withdraw USDT: ${error.message}`);
+//     }
+// }
 app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -105,7 +89,6 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
         console.log("Completed purchase. Full session data:", JSON.stringify(session));
-
         console.log("completed purchase");
 
         // Extract crypto data from session metadata
@@ -116,10 +99,19 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
         if (cryptoAmount && cryptoType && walletAddress) {
             console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
             
-            const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
-            
-            // Buy and transfer crypto. I'm assuming you might want to include the walletAddress in the buying/transferring function.
-            buyAndTransferCrypto(cryptoAmount, symbol, walletAddress);
+            // Check the crypto type and process accordingly
+            if (cryptoType === 'USDT') {
+                // Withdraw USDT to the provided wallet address
+                try {
+                    const withdrawalResult = await withdrawUSDT(walletAddress, parseFloat(cryptoAmount));
+                    console.log("Withdrawal successful:", withdrawalResult);
+                } catch (withdrawalError) {
+                    console.error(`Failed to withdraw ${cryptoType}:`, withdrawalError.message);
+                }
+            } else {
+                // Handle other cryptocurrencies here, if applicable
+                console.error("Unsupported cryptocurrency type:", cryptoType);
+            }
 
             return res.status(200).send('Received');
         } else {
@@ -132,7 +124,20 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
     return res.status(400).send(`Unhandled event type: ${event.type}`);
 });
 
-async function buyAndTransferCrypto(cryptoAmount, symbol) {
+async function withdrawUSDT(address, amount) {
+    try {
+        const result = await client.withdraw({
+            asset: 'USDT',
+            address: address,
+            amount: amount
+        });
+        return result;
+    } catch (error) {
+        throw new Error(`Failed to withdraw USDT: ${error.message}`);
+    }
+}
+
+async function buyAndTransferCrypto(cryptoAmount, symbol, walletAddress) {
     try {
         const orderResponse = await client.order({
             symbol: symbol,
@@ -146,7 +151,7 @@ async function buyAndTransferCrypto(cryptoAmount, symbol) {
         console.log("Order ID:", orderResponse.orderId);
 
         // After buying, transfer to the user's wallet
-        const walletAddress = "EXTRACTED_FROM_SESSION"; // Placeholder
+        // const walletAddress = "EXTRACTED_FROM_SESSION"; // Placeholder
         const amountToSend = orderResponse.executedQty;
 
         const withdrawalResponse = await client.withdraw({
@@ -175,6 +180,50 @@ app.get('/', (req, res) => {
     res.send('Hello, Crypto Onramp!');
 });
 
+// app.post('/create-checkout-session', async (req, res) => {
+//     const { amount, walletAddress } = req.body;
+    
+//     if (!amount || isNaN(amount)) {
+//         return res.status(400).send('Invalid amount provided');
+//     }
+
+//     // Assuming a fixed price for demonstration. Replace with dynamic pricing logic if needed.
+//     const price = 2000;
+//     const totalAmount = amount * price;
+//     const unitAmt = totalAmount * 100;
+
+//     try {
+//         const session = await stripe.checkout.sessions.create({
+//             payment_method_types: ['card'],
+//             line_items: [{
+//                 price_data: {
+//                     currency: 'usd',
+//                     product_data: {
+//                         name: `${amount} USDT`,
+//                         description: `Buying ${amount} USDT for wallet: ${walletAddress}`,
+//                     },
+//                     unit_amount: parseInt(unitAmt, 10)
+//                 },
+//                 quantity: 1,
+//             }],
+//             mode: 'payment',
+//             success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
+//             cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
+//             metadata: { // Adding metadata to store the custom data
+//                 cryptoAmount: `${amount}`,
+//                 cryptoType: 'USDT',  // Using 'ETH' as a placeholder
+//                 walletAddress: `${walletAddress}`
+//             }
+//         });
+
+//         res.json({ sessionId: session.id });
+//         console.log(session.id);
+//     } catch (error) {
+//         console.error('Error creating checkout session:', error);
+//         res.status(500).send('Internal Server Error');
+//     }
+// });
+
 app.post('/create-checkout-session', async (req, res) => {
     const { amount, walletAddress } = req.body;
     
@@ -182,8 +231,9 @@ app.post('/create-checkout-session', async (req, res) => {
         return res.status(400).send('Invalid amount provided');
     }
 
-    // Assuming a fixed price for demonstration. Replace with dynamic pricing logic if needed.
-    const price = 2000;
+    // Assuming a fixed price for demonstration. In the real world, you'll need to fetch the current price of USDT in USD.
+    // However, since USDT is a stablecoin, its price is usually close to $1. I'm using 1 for the price of USDT in this example.
+    const price = 1; 
     const totalAmount = amount * price;
     const unitAmt = totalAmount * 100;
 
@@ -194,8 +244,8 @@ app.post('/create-checkout-session', async (req, res) => {
                 price_data: {
                     currency: 'usd',
                     product_data: {
-                        name: `${amount} ETH`,
-                        description: `Buying ${amount} ETH for wallet: ${walletAddress}`,
+                        name: `${amount} USDT`,
+                        description: `Buying ${amount} USDT for wallet: ${walletAddress}`,
                     },
                     unit_amount: parseInt(unitAmt, 10)
                 },
@@ -206,7 +256,7 @@ app.post('/create-checkout-session', async (req, res) => {
             cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
             metadata: { // Adding metadata to store the custom data
                 cryptoAmount: `${amount}`,
-                cryptoType: 'ETH',  // Using 'ETH' as a placeholder
+                cryptoType: 'USDT',
                 walletAddress: `${walletAddress}`
             }
         });
@@ -220,53 +270,6 @@ app.post('/create-checkout-session', async (req, res) => {
 });
 
 
-// app.post('/create-checkout-session', async (req, res) => {
-//     // const { cryptoType, cryptoAmount, walletAddress } = req.body;
-//     const { amount, walletAddress } = req.body; // Corrected data destructuring
-//     if (!amount || isNaN(amount)) {
-//         return res.status(400).send('Invalid amount provided');
-//     }
-//     // For demonstration purposes, let's assume a fixed price. In a real-world scenario, you'd fetch current crypto prices.
-//     // const price = cryptoType === 'ETH' ? 2000 : 1; // Replace with dynamic pricing logic
-//     // const totalAmount = cryptoAmount * price;
-//     // const unitAmt = totalAmount * 100
-
-//     // For demonstration purposes, let's assume a fixed price and crypto type
-//     const price = 2000; // Replace with dynamic pricing logic
-//     const totalAmount = amount * price;
-//     const unitAmt = totalAmount * 100;
-
-//     try {
-//         const session = await stripe.checkout.sessions.create({
-//             payment_method_types: ['card'],
-//             line_items: [{
-//                 price_data: {
-//                     currency: 'usd',
-//                     product_data: {
-//                         // name: `${cryptoAmount} ${cryptoType}`,
-//                         // description: `Buying ${cryptoAmount} ${cryptoType} for wallet: ${walletAddress}`,
-//                         name: `${amount} ETH`, // Here I assume you're only dealing with ETH as a placeholder
-//                         description: `Buying ${amount} ETH for wallet: ${walletAddress}`,
-
-//                     },
-//                     // unit_amount: totalAmount * 100, // Stripe uses cents, hence multiplying by 100
-//                     unit_amount: parseInt(unitAmt, 10)
-
-//                 },
-//                 quantity: 1,
-//             }],
-//             mode: 'payment',
-//             success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
-//             cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
-//         });
-
-//         res.json({ sessionId: session.id });
-//         console.log(session.id)
-//     } catch (error) {
-//         console.error('Error creating checkout session:', error);
-//         res.status(500).send('Internal Server Error');
-//     }
-// });
 
 
 // app.post('/mpesa-stk-push', (req, res) => {
