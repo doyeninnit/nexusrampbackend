@@ -10,7 +10,6 @@ const IntaSend = require('intasend-node');
 const app = express();
 const port = 3000;
 
-app.use(bodyParser.json());
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST']
@@ -22,63 +21,6 @@ const client = Binance({
     // getTime: xxx,
 })
 
-// const intasend = new IntaSend({
-//     publishable_key: 'ISPubKey_test_a221dee2-8882-494c-887c-5934e26e8123',
-//     // secret_key: 'ISSecretKey_test_922fc0a6-19a9-46e4-9543-22e66e727cfe',
-//     test_mode: true // set to false when going live
-// });
-
-app.get('/', (req, res) => {
-    res.send('Hello, Crypto Onramp!');
-});
-
-app.post('/create-checkout-session', async (req, res) => {
-    // const { cryptoType, cryptoAmount, walletAddress } = req.body;
-    const { amount, walletAddress } = req.body; // Corrected data destructuring
-    if (!amount || isNaN(amount)) {
-        return res.status(400).send('Invalid amount provided');
-    }
-    // For demonstration purposes, let's assume a fixed price. In a real-world scenario, you'd fetch current crypto prices.
-    // const price = cryptoType === 'ETH' ? 2000 : 1; // Replace with dynamic pricing logic
-    // const totalAmount = cryptoAmount * price;
-    // const unitAmt = totalAmount * 100
-
-    // For demonstration purposes, let's assume a fixed price and crypto type
-    const price = 2000; // Replace with dynamic pricing logic
-    const totalAmount = amount * price;
-    const unitAmt = totalAmount * 100;
-
-    try {
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [{
-                price_data: {
-                    currency: 'usd',
-                    product_data: {
-                        // name: `${cryptoAmount} ${cryptoType}`,
-                        // description: `Buying ${cryptoAmount} ${cryptoType} for wallet: ${walletAddress}`,
-                        name: `${amount} ETH`, // Here I assume you're only dealing with ETH as a placeholder
-                        description: `Buying ${amount} ETH for wallet: ${walletAddress}`,
-
-                    },
-                    // unit_amount: totalAmount * 100, // Stripe uses cents, hence multiplying by 100
-                    unit_amount: parseInt(unitAmt, 10)
-
-                },
-                quantity: 1,
-            }],
-            mode: 'payment',
-            success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
-            cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
-        });
-
-        res.json({ sessionId: session.id });
-        console.log(session.id)
-    } catch (error) {
-        console.error('Error creating checkout session:', error);
-        res.status(500).send('Internal Server Error');
-    }
-});
 
 app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
@@ -139,6 +81,66 @@ async function buyAndTransferCrypto(cryptoAmount, symbol) {
         // Handle error: maybe notify admin, retry, etc.
     }
 }
+// const intasend = new IntaSend({
+//     publishable_key: 'ISPubKey_test_a221dee2-8882-494c-887c-5934e26e8123',
+//     // secret_key: 'ISSecretKey_test_922fc0a6-19a9-46e4-9543-22e66e727cfe',
+//     test_mode: true // set to false when going live
+// });
+
+app.use(bodyParser.json());
+
+app.get('/', (req, res) => {
+    res.send('Hello, Crypto Onramp!');
+});
+
+app.post('/create-checkout-session', async (req, res) => {
+    // const { cryptoType, cryptoAmount, walletAddress } = req.body;
+    const { amount, walletAddress } = req.body; // Corrected data destructuring
+    if (!amount || isNaN(amount)) {
+        return res.status(400).send('Invalid amount provided');
+    }
+    // For demonstration purposes, let's assume a fixed price. In a real-world scenario, you'd fetch current crypto prices.
+    // const price = cryptoType === 'ETH' ? 2000 : 1; // Replace with dynamic pricing logic
+    // const totalAmount = cryptoAmount * price;
+    // const unitAmt = totalAmount * 100
+
+    // For demonstration purposes, let's assume a fixed price and crypto type
+    const price = 2000; // Replace with dynamic pricing logic
+    const totalAmount = amount * price;
+    const unitAmt = totalAmount * 100;
+
+    try {
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: {
+                        // name: `${cryptoAmount} ${cryptoType}`,
+                        // description: `Buying ${cryptoAmount} ${cryptoType} for wallet: ${walletAddress}`,
+                        name: `${amount} ETH`, // Here I assume you're only dealing with ETH as a placeholder
+                        description: `Buying ${amount} ETH for wallet: ${walletAddress}`,
+
+                    },
+                    // unit_amount: totalAmount * 100, // Stripe uses cents, hence multiplying by 100
+                    unit_amount: parseInt(unitAmt, 10)
+
+                },
+                quantity: 1,
+            }],
+            mode: 'payment',
+            success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
+            cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
+        });
+
+        res.json({ sessionId: session.id });
+        console.log(session.id)
+    } catch (error) {
+        console.error('Error creating checkout session:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
 
 // app.post('/mpesa-stk-push', (req, res) => {
 //     // const { first_name, last_name, email, host, amount, phone_number, api_ref } = req.body;
