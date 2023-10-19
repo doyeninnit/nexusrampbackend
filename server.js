@@ -5,6 +5,47 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const Binance = require('binance-api-node').default
 const cors = require('cors');
 const IntaSend = require('intasend-node');
+const { ethers } = require('ethers');
+
+// Private key of your hardcoded wallet - NEVER HARDCODE THIS, retrieve from environment variables
+const HARDCODED_WALLET_PRIVATE_KEY = process.env.HARDCODED_WALLET_PRIVATE_KEY;
+
+// USDT Contract details
+const USDT_CONTRACT_ADDRESS = "0x14CE4c8E705531c3CbDDa925b9DeE6Df37aEE48e";
+const USDT_ABI = [
+    {
+       "constant": false,
+       "inputs": [
+          {
+             "name": "_to",
+             "type": "address"
+          },
+          {
+             "name": "_value",
+             "type": "uint256"
+          }
+       ],
+       "name": "transfer",
+       "outputs": [
+          {
+             "name": "",
+             "type": "bool"
+          }
+       ],
+       "payable": false,
+       "stateMutability": "nonpayable",
+       "type": "function"
+    }
+ ];
+
+// Set up a provider
+const provider = new ethers.getDefaultProvider('goerli'); // Use 'rinkeby' for Rinkeby testnet etc.
+
+// Set up a wallet instance from the private key
+const hardcodedWallet = new ethers.Wallet(HARDCODED_WALLET_PRIVATE_KEY, provider);
+
+// Create a new instance to interact with the USDT contract
+const usdtContract = new ethers.Contract(USDT_CONTRACT_ADDRESS, USDT_ABI, hardcodedWallet);
 
 
 const app = express();
@@ -22,59 +63,6 @@ const client = Binance({
 })
 
 
-// app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
-//     const sig = req.headers['stripe-signature'];
-//     let event;
-
-//     try {
-//         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-//     } catch (err) {
-//         console.error("Error constructing webhook event:", err.message);
-//         return res.status(400).send(`Webhook Error: ${err.message}`);
-//     }
-
-//     if (event.type === 'checkout.session.completed') {
-//         const session = event.data.object;
-//         console.log("Completed purchase. Full session data:", JSON.stringify(session));
-
-//         console.log("completed purchase");
-
-//         // Extract crypto data from session metadata
-//         const cryptoAmount = session?.metadata?.cryptoAmount;
-//         const cryptoType = session?.metadata?.cryptoType;
-//         const walletAddress = session?.metadata?.walletAddress;
-        
-//         if (cryptoAmount && cryptoType && walletAddress) {
-//             console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
-            
-//             const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
-            
-//             // Buy and transfer crypto. I'm assuming you might want to include the walletAddress in the buying/transferring function.
-//             buyAndTransferCrypto(cryptoAmount, symbol, walletAddress);
-
-//             return res.status(200).send('Received');
-//         } else {
-//             console.error("Unexpected session format. Could not extract crypto data.");
-//             return res.status(400).send("Unexpected session format. Could not extract crypto data.");
-//         }
-//     }
-
-//     console.error("Unhandled event type:", event.type);
-//     return res.status(400).send(`Unhandled event type: ${event.type}`);
-// });
-
-// async function withdrawUSDT(address, amount) {
-//     try {
-//         const result = await client.withdraw({
-//             asset: 'USDT',
-//             address: address,
-//             amount: amount
-//         });
-//         return result;
-//     } catch (error) {
-//         throw new Error(`Failed to withdraw USDT: ${error.message}`);
-//     }
-// }
 app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -124,18 +112,35 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
     return res.status(400).send(`Unhandled event type: ${event.type}`);
 });
 
+// async function withdrawUSDT(address, amount) {
+//     try {
+//         const result = await client.withdraw({
+//             asset: 'USDT',
+//             address: address,
+//             amount: amount
+//         });
+//         return result;
+//     } catch (error) {
+//         throw new Error(`Failed to withdraw USDT: ${error.message}`);
+//     }
+// }
+
 async function withdrawUSDT(address, amount) {
     try {
-        const result = await client.withdraw({
-            asset: 'USDT',
-            address: address,
-            amount: amount
-        });
-        return result;
+        const amountInSmallestUnit = ethers.utils.parseUnits(amount.toString(), 6); // Convert to smallest unit
+
+        // Send USDT from your hardcoded wallet to the provided address
+        const tx = await usdtContract.transfer(address, amountInSmallestUnit);
+
+        // Wait for the transaction to be mined and get its receipt
+        const receipt = await tx.wait();
+        console.log(receipt.transactionHash)
+        return { success: true, txHash: receipt.transactionHash };
     } catch (error) {
         throw new Error(`Failed to withdraw USDT: ${error.message}`);
     }
 }
+
 
 async function buyAndTransferCrypto(cryptoAmount, symbol, walletAddress) {
     try {
@@ -168,11 +173,7 @@ async function buyAndTransferCrypto(cryptoAmount, symbol, walletAddress) {
         // Handle error: maybe notify admin, retry, etc.
     }
 }
-// const intasend = new IntaSend({
-//     publishable_key: 'ISPubKey_test_a221dee2-8882-494c-887c-5934e26e8123',
-//     // secret_key: 'ISSecretKey_test_922fc0a6-19a9-46e4-9543-22e66e727cfe',
-//     test_mode: true // set to false when going live
-// });
+;
 
 app.use(bodyParser.json());
 
@@ -180,49 +181,6 @@ app.get('/', (req, res) => {
     res.send('Hello, Crypto Onramp!');
 });
 
-// app.post('/create-checkout-session', async (req, res) => {
-//     const { amount, walletAddress } = req.body;
-    
-//     if (!amount || isNaN(amount)) {
-//         return res.status(400).send('Invalid amount provided');
-//     }
-
-//     // Assuming a fixed price for demonstration. Replace with dynamic pricing logic if needed.
-//     const price = 2000;
-//     const totalAmount = amount * price;
-//     const unitAmt = totalAmount * 100;
-
-//     try {
-//         const session = await stripe.checkout.sessions.create({
-//             payment_method_types: ['card'],
-//             line_items: [{
-//                 price_data: {
-//                     currency: 'usd',
-//                     product_data: {
-//                         name: `${amount} USDT`,
-//                         description: `Buying ${amount} USDT for wallet: ${walletAddress}`,
-//                     },
-//                     unit_amount: parseInt(unitAmt, 10)
-//                 },
-//                 quantity: 1,
-//             }],
-//             mode: 'payment',
-//             success_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/success',
-//             cancel_url: 'https://k-ramp-git-staging-griffins-sys254.vercel.app/cancel',
-//             metadata: { // Adding metadata to store the custom data
-//                 cryptoAmount: `${amount}`,
-//                 cryptoType: 'USDT',  // Using 'ETH' as a placeholder
-//                 walletAddress: `${walletAddress}`
-//             }
-//         });
-
-//         res.json({ sessionId: session.id });
-//         console.log(session.id);
-//     } catch (error) {
-//         console.error('Error creating checkout session:', error);
-//         res.status(500).send('Internal Server Error');
-//     }
-// });
 
 app.post('/create-checkout-session', async (req, res) => {
     const { amount, walletAddress } = req.body;
@@ -230,9 +188,6 @@ app.post('/create-checkout-session', async (req, res) => {
     if (!amount || isNaN(amount)) {
         return res.status(400).send('Invalid amount provided');
     }
-
-    // Assuming a fixed price for demonstration. In the real world, you'll need to fetch the current price of USDT in USD.
-    // However, since USDT is a stablecoin, its price is usually close to $1. I'm using 1 for the price of USDT in this example.
     const price = 1; 
     const totalAmount = amount * price;
     const unitAmt = totalAmount * 100;
@@ -272,62 +227,9 @@ app.post('/create-checkout-session', async (req, res) => {
 
 
 
-// app.post('/mpesa-stk-push', (req, res) => {
-//     // const { first_name, last_name, email, host, amount, phone_number, api_ref } = req.body;
-
-//     // Validate request data here if necessary
-//     console.log("1")
-//     let collection = intasend.collection();
-//     console.log("2")
-
-//     collection.mpesaStkPush({
-//         // first_name,
-//         // last_name,
-//         // email,
-//         // host,
-//         // amount,
-//         // phone_number,
-//         // api_ref
-//         first_name: 'Nashons',
-//         last_name: 'Agate',
-//         email: 'agatenashons@gmail.com',
-//         host: 'https://www.swypt.io/',
-//         amount: 10,
-//         phone_number: '254796448347',
-//         api_ref: 'test',
-//     })
-
-//     console.log("3")
-
-//         .then((resp) => {
-//             res.json({
-//                 message: 'STK Push Successful',
-//                 data: resp
-//             });
-//         })
-//         .catch((err) => {
-//             // console.error('STK Push Resp error:', err);
-//             console.error('STK Push Resp error:', err.toString('utf8'));
-//             res.status(500).json({
-//                 message: 'STK Push Failed',
-//                 error: err.message
-//             });
-//         });
-// });
-
-
 app.listen(port, async () => {
     console.log(`Server started on http://localhost:${port}`);
     console.log(await client.ping())
     console.log(await client.time())
-    // console.log(
-    //     await client.order({
-    //       symbol: 'XLMETH',
-    //       side: 'BUY',
-    //       quantity: '100',
-    //       price: '0.0002',
-    //     }),
-    //   )
-
 
 });
