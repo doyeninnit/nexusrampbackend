@@ -22,6 +22,32 @@ const client = Binance({
 })
 
 
+// app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
+//     const sig = req.headers['stripe-signature'];
+//     let event;
+
+//     try {
+//         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+//     } catch (err) {
+//         return res.status(400).send(`Webhook Error: ${err.message}`);
+//     }
+
+//     if (event.type === 'checkout.session.completed') {
+//         const session = event.data.object;
+//        console.log("completed purchase")
+//         // TODO: Purchase crypto via Binance here
+//         // Extract crypto type, amount, and wallet address from session
+//         const [cryptoAmount, cryptoType] = session.display_items[0].description.split(" ");
+//      console.log('logged completed data = '`${cryptoType}, ${cryptoAmount}`)
+//         // For demonstration purposes, we'll consider a market buy order.
+//         const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
+//     }
+
+//     buyAndTransferCrypto(cryptoAmount, symbol)
+
+//     res.status(200).send('Received');
+// });
+
 app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
@@ -29,25 +55,40 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
     try {
         event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
     } catch (err) {
+        console.error("Error constructing webhook event:", err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
-       console.log("completed purchase")
-        // TODO: Purchase crypto via Binance here
-        // Extract crypto type, amount, and wallet address from session
-        const [cryptoAmount, cryptoType] = session.display_items[0].description.split(" ");
-     console.log('logged completed data = '`${cryptoType}, ${cryptoAmount}`)
-        // For demonstration purposes, we'll consider a market buy order.
-        const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
+
+        console.log("completed purchase");
+
+        // Safely access the description
+        const description = session?.display_items?.[0]?.description;
+        
+        if (description) {
+            const [cryptoAmount, cryptoType] = description.split(" ");
+
+            if (cryptoAmount && cryptoType) {
+                console.log(`Logged completed data = ${cryptoType}, ${cryptoAmount}`);
+                
+                const symbol = cryptoType === 'ETH' ? 'ETHUSDT' : 'USDTUSDT'; // Use appropriate trading pair
+                
+                // Buy and transfer crypto
+                buyAndTransferCrypto(cryptoAmount, symbol);
+
+                return res.status(200).send('Received');
+            }
+        }
+        
+        console.error("Unexpected session format. Could not extract crypto data.");
+        return res.status(400).send("Unexpected session format. Could not extract crypto data.");
     }
 
-    buyAndTransferCrypto(cryptoAmount, symbol)
-
-    res.status(200).send('Received');
+    console.error("Unhandled event type:", event.type);
+    return res.status(400).send(`Unhandled event type: ${event.type}`);
 });
-
 
 
 async function buyAndTransferCrypto(cryptoAmount, symbol) {
