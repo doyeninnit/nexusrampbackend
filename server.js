@@ -61,6 +61,7 @@ app.post('/stripe-webhook', bodyParser.raw({ type: 'application/json' }), async 
 
     if (event.type === 'checkout.session.completed') {
         const session = event.data.object;
+        console.log("Completed purchase. Full session data:", JSON.stringify(session));
 
         console.log("completed purchase");
 
